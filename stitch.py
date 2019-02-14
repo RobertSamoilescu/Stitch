@@ -8,46 +8,106 @@ class Stitcher:
         # determine if we are using OpenCV v3.X
         self.isv3 = imutils.is_cv3()
 
-    def stitch(self, images,  stitch="Left", ratio=0.75, reprojThresh=4.0, showMatches=False):
+    def sigmoid(self, x):
+        return 1 / (1 + np.exp(-x))
+
+
+    def color_correction(self, result, image, mask, stitch="Right"):
+        # color difference
+        if stitch == "Right":
+            rows, cols = np.where(mask[0:image.shape[0], 0:image.shape[1]] > 0)
+        else:
+            rows, cols = np.where(mask[0:image.shape[0], image.shape[1]//2:] > 0)
+            cols += image.shape[1]//2
+
+        diff = (image[rows, cols] - result[rows, cols]).mean(axis=0)
+        result[mask > 0] += diff.reshape(1, -1)
+        result = np.clip(result, 0, 255.0)
+
+        return result 
+
+
+    def blend(self, result, image, stitch="Right"):
+        mask = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
+        result = result.astype(dtype=np.float32)
+        image = image.astype(dtype=np.float32)
+
+        # color correction
+        result = self.color_correction(result, image, mask, stitch)
+       
+        # blend edge
+        for i in range(result.shape[0]):
+            if stitch == "Right":
+                cols, = np.where(mask[i, 0:image.shape[1]] > 0) 
+            else:
+                cols, = np.where(mask[i, image.shape[1]//2:] > 0)
+                cols += image.shape[1] // 2
+
+            if len(cols) == 0:
+                continue
+
+            inf, sup = cols.min(), cols.max()
+            # Maybe try different blending functions or different limits for sigmoid
+            # factors = np.linspace(0, 1, sup - inf + 1).reshape(-1, 1)
+            factors = self.sigmoid(np.linspace(-10, 10, sup - inf + 1)).reshape(-1, 1)
+
+            if stitch != "Right":
+                factors = 1 - factors
+
+            result[i, inf:sup+1] *= factors
+            image[i, inf:sup+1] *= 1 - factors
+
+            if stitch == "Right":
+                result[i, 0:image.shape[1]] += image[i, :]
+            else:
+                result[i, image.shape[1]//2:] += image[i, image.shape[1]//2:]
+
+        return result.astype(dtype=np.uint8)
+
+
+    def stitch(self, images,  H=np.array([]), stitch="Left", ratio=0.75, reprojThresh=4.0, showMatches=False):
         # unpack the images, then detect keypoints and extract
         # local invariant descriptors from them
         (imageB, imageA) = images
 
         if stitch == "Left":
-            new_imageA = np.zeros((imageA.shape[0], imageA.shape[1] + imageB.shape[1], imageA.shape[2])).astype(np.uint8)
+            new_imageA = np.zeros((imageA.shape[0], 2 * imageA.shape[1], imageA.shape[2])).astype(np.uint8)
             new_imageA[0:imageA.shape[0], imageA.shape[1]:] = imageA
             imageA = new_imageA
 
-        (kpsA, featuresA) = self.detectAndDescribe(imageA)
-        (kpsB, featuresB) = self.detectAndDescribe(imageB)
+        kps_computed = False
+        if H.size == 0:
+            (kpsA, featuresA) = self.detectAndDescribe(imageA)
+            (kpsB, featuresB) = self.detectAndDescribe(imageB)
+            kps_computed = True
 
-        # match features between the two images
-        if stitch == "Right":
-            M = self.matchKeypoints(kpsA, kpsB, featuresA, featuresB, ratio, reprojThresh)
-        else:
-            M = self.matchKeypoints(kpsB, kpsA, featuresB, featuresA, ratio, reprojThresh)
+            # match features between the two images
+            if stitch == "Right":
+                M = self.matchKeypoints(kpsA, kpsB, featuresA, featuresB, ratio, reprojThresh)
+            else:
+                M = self.matchKeypoints(kpsB, kpsA, featuresB, featuresA, ratio, reprojThresh)
 
-        # if the match is None, then there aren't enough matched
-        # keypoints to create a panorama
-        if M is None:
-            return None
+            # if the match is None, then there aren't enough matched
+            # keypoints to create a panorama
+            if M is None:
+                return None
 
-        # otherwise, apply a perspective warp to stitch the images
-        # together
-        (matches, H, status) = M
+            # otherwise, apply a perspective warp to stitch the images
+            # together
+            (matches, H, status) = M
 
         if stitch == "Right":
             result = cv2.warpPerspective(imageA, H,
                                          (imageA.shape[1] + imageB.shape[1], imageA.shape[0]))
-            result[0:imageB.shape[0], 0:imageB.shape[1]] = imageB
+            result = self.blend(result, imageB, stitch)
         else:
             result = cv2.warpPerspective(imageB, H,
                                          (imageA.shape[1], imageB.shape[0]))
-            result[0:imageA.shape[0], imageB.shape[1]:] = imageA[0:imageA.shape[0], imageB.shape[1]:]
+            result = self.blend(result, imageA, stitch)
 
 
         # check to see if the keypoint matches should be visualized
-        if showMatches:
+        if showMatches and kps_computed:
             if stitch == "Right":
                 vis = self.drawMatches(imageA, imageB, kpsA, kpsB, matches, status)
             else:
@@ -55,10 +115,10 @@ class Stitcher:
 
             # return a tuple of the stitched image and the
             # visualization
-            return (result, vis)
+            return (result, vis), H
 
         # return the stitched image
-        return result
+        return result, H
 
 
     def detectAndDescribe(self, image):
@@ -147,33 +207,37 @@ class Stitcher:
 
 
 class Stitcher3(object):
-    def __init__(self, leftImg, centerImg, rightImg, K=np.array([]), distCoeffs=np.array([])):
-        self.leftImg = leftImg
-        self.centerImg = centerImg
-        self.rightImg = rightImg
+    def __init__(self):
+        self.stitcher = Stitcher()
+        self.leftH = np.array([])
+        self.rightH = np.array([])
 
-
-        self.leftImg = imutils.resize(self.leftImg, width=400)
-        self.centerImg = imutils.resize(self.centerImg, width=400)
-        self.rightImg = imutils.resize(self.rightImg, width=400)
+    def preprocess(self, leftImg, centerImg, rightImg, K=np.array([]), distCoeffs=np.array([])):
+        leftImg = imutils.resize(leftImg, width=400)
+        centerImg = imutils.resize(centerImg, width=400)
+        rightImg = imutils.resize(rightImg, width=400)
 
         # undistor if K and dist
         if K.size != 0 and distCoeffs.size != 0:
-            self.K = K
-            self.distCoeffs = distCoeffs
+            leftImg = cv2.undistort(leftImg, K, distCoeffs)
+            centerImg = cv2.undistort(centerImg, K, distCoeffs)
+            rightImg = cv2.undistort(rightImg, K, distCoeffs)
 
-            self.leftImg = cv2.undistort(self.leftImg, K, distCoeffs)
-            self.centerImg = cv2.undistort(self.centerImg, K, distCoeffs)
-            self.rightImg = cv2.undistort(self.rightImg, K, distCoeffs)
+        return leftImg, centerImg, rightImg
+       
 
+    def get_stitched(self, leftImg, centerImg, rightImg, K=np.array([]), distCoeffs=np.array([])):
+        leftImg, centerImg, rightImg = self.preprocess(leftImg, centerImg, rightImg, K, distCoeffs)
+        
         # stitch images
-        stitcher = Stitcher()
-        self.result = stitcher.stitch([self.leftImg, self.centerImg], stitch="Left")
-        self.result = stitcher.stitch([self.result, self.rightImg], stitch="Right")
+        if self.leftH.size == 0 or self.rightH.size == 0:
+            result, self.leftH = self.stitcher.stitch([leftImg, centerImg], stitch="Left")
+            result, self.rightH = self.stitcher.stitch([result, rightImg], stitch="Right")
+        else:
+            result, _ = self.stitcher.stitch([leftImg, centerImg], self.leftH, stitch="Left")
+            result, _ = self.stitcher.stitch([result, rightImg], self.rightH, stitch="Right")
 
-
-    def get_stitched(self):
-        return self.result
+        return result
 
 
 if __name__ == "__main__":
@@ -189,7 +253,7 @@ if __name__ == "__main__":
 
     """
     imageA = cv2.imread("imgs/cam_1.png")
-    imageA = imutils.resize(imageA, width=400)
+    
     imageA = cv2.undistort(imageA, K, dist)
 
     imageB = cv2.imread("imgs/cam_2.png")
@@ -211,11 +275,10 @@ if __name__ == "__main__":
     imageC = cv2.imread("imgs/3.jpg")
     imageC = imutils.resize(imageC, width=400)
 
-
     # stitch the images together to create a panorama
     stitcher = Stitcher()
-    (result, vis) = stitcher.stitch([imageA, imageB], stitch="Left", showMatches=True, )
-    (result, vis) = stitcher.stitch([result, imageC], stitch="Right", showMatches=True)
+    (result, vis), _ = stitcher.stitch([imageA, imageB], stitch="Left", showMatches=True)
+    (result, vis), _ = stitcher.stitch([result, imageC], stitch="Right", showMatches=True)
 
 
     # show the images

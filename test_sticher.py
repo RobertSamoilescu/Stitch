@@ -18,8 +18,8 @@ if __name__ == "__main__":
     rightImg = cv2.imread("imgs/cam_3.png")
 
     # create stitcher object
-    stitcher3 = stitch.Stitcher3(leftImg, centerImg, rightImg)
-    img = stitcher3.get_stitched()
+    stitcher3 = stitch.Stitcher3()
+    img = stitcher3.get_stitched(leftImg, centerImg, rightImg)
 
     img = imutils.resize(img, width=1200)
     cv2.imshow("Result", img)

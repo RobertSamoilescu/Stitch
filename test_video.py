@@ -12,15 +12,15 @@ K = np.array([
     [0.000000, 0.000000, 1.000000]
 ])
 
-# input videos
-#leftCap = cv2.VideoCapture('video4/small_1.mp4')
-#centerCap = cv2.VideoCapture("video4/small_3.mp4")
-#rightCap = cv2.VideoCapture("video4/small_2.mp4")
+# # input videos
+# leftCap = cv2.VideoCapture('video4/small_1.mp4')
+# centerCap = cv2.VideoCapture("video4/small_3.mp4")
+# rightCap = cv2.VideoCapture("video4/small_2.mp4")
 
 
-#leftCap = cv2.VideoCapture('video2/small_3.mp4')
-#centerCap = cv2.VideoCapture("video2/small_2.mp4")
-#rightCap = cv2.VideoCapture("video2/small_1.mp4")
+# leftCap = cv2.VideoCapture('video2/small_3.mp4')
+# centerCap = cv2.VideoCapture("video2/small_2.mp4")
+# rightCap = cv2.VideoCapture("video2/small_1.mp4")
 
 leftCap = cv2.VideoCapture('video1/small_3.mp4')
 centerCap = cv2.VideoCapture("video1/small_1.mp4")
@@ -33,29 +33,23 @@ if (leftCap.isOpened() == False) or (centerCap.isOpened() == False) or (rightCap
 
 
 # Read until video is completed
+sticher3 = stitch.Stitcher3()
 while True:
     # Capture frame-by-frame
     retLeft, leftFrame = leftCap.read()
-    #leftFrame = transformation.Crop.crop_center(leftFrame, up=0.2, down=0.5, left=0.5, right=0.5)
-
     retCenter, centerFrame = centerCap.read()
-    #centerFrame = transformation.Crop.crop_center(centerFrame, up=0.2, down=0.5, left=0.5, right=0.5)
-
     retRight, rightFrame = rightCap.read()
-    #rightFrame = transformation.Crop.crop_center(rightFrame, up=0.2, down=0.5, left=0.5, right=0.5)
 
     if retLeft and retCenter and retRight:
-        #sticher3 = stitch.Stitcher3(leftFrame, centerFrame, rightFrame, K, dist) 
-        sticher3 = stitch.Stitcher3(leftFrame, centerFrame, rightFrame)
-        frame = sticher3.get_stitched()
-        frame = transformation.Crop.crop_center(frame, up=0.3)
-
-        #stitcher = stitch.Stitcher()
-        #frame = stitcher.stitch([centerFrame, rightFrame], stitch="Right")
-        #frame = centerFrame
-
+        leftFrame = transformation.Crop.crop_center(leftFrame, up=0.1, down=0.5, left=0.5, right=0.5)
+        centerFrame = transformation.Crop.crop_center(centerFrame, up=0.1, down=0.5, left=0.5, right=0.5)
+        rightFrame = transformation.Crop.crop_center(rightFrame, up=0.1, down=0.5, left=0.5, right=0.5)
+        
+        # stich the three images
+        frame = sticher3.get_stitched(leftFrame, centerFrame, rightFrame)
+       
         # Display the resulting frame
-        frame = imutils.resize(frame, width=1200)
+        frame = imutils.resize(frame, height=300)
         cv2.imshow('Frame', frame)
 
         # Press Q on keyboard to  exit
@@ -70,7 +64,6 @@ while True:
 leftCap.release()
 centerCap.release()
 rightCap.release()
-
 
 # Closes all the frames
 cv2.destroyAllWindows()
