@@ -233,7 +233,8 @@ if __name__ == "__main__":
 COMMANDS:
 A/D - translate left/right
 W/S - translate up/down
-Q/E - rotate left/right
+Q/E - rotate OY left/right
+R/T - rotate OZ left/right
 Z/X - zoom out/in
 SPACE - switch camera
 ESC - after cameras are calibrated, start video
