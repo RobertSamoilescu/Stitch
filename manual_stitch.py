@@ -11,11 +11,20 @@ def get_translation(dx, dy):
 
     return T
 
-def get_rotation(angle):
+def get_y_rotation(angle):
     R = np.array([
         [np.cos(angle), 0, np.sin(angle)],
         [0, 1, 0],
         [-np.sin(angle), 0, np.cos(angle)],
+    ])
+
+    return R
+
+def get_z_rotation(angle):
+    R = np.array([
+        [np.cos(angle), -np.sin(angle), 0],
+        [np.sin(angle), np.cos(angle), 0],
+        [0, 0, 1],
     ])
 
     return R
@@ -80,14 +89,17 @@ if __name__ == "__main__":
     dy_left = 0.0; dy_right = 0.0
     dz_left = 1.0; dz_right = 1.0
     alpha_left = 0.0; alpha_right = 0.0
+    beta_left = 0.0; beta_rigth = 0.0
 
     while True:
         print("dx_left {} dy_left {} dz_left {}".format(dx_left, dy_left, dz_left))
         print("alpha_left {}".format(alpha_left))
+        print("beta_left {}".format(beta_left))
         print("=" * 10)
 
         print("dx_right {} dy_right {} dz_right {}".format(dx_right, dy_right, dz_right))
         print("alpha_right {}".format(alpha_right))
+        print("beta_right {}".format(beta_rigth))
         print("=" * 10)
 
         c = cv2.waitKey(0)
@@ -131,32 +143,45 @@ if __name__ == "__main__":
                 alpha_left += STEP
             else:
                 alpha_right += STEP
+        elif c & 0xFF == ord('r'):
+            if camera == "left":
+                beta_left -= STEP
+            else:
+                beta_left += STEP
+        elif c & 0xFF == ord('t'):
+            if camera == "left":
+                beta_left += STEP
+            else:
+                beta_rigth += STEP
         elif c & 0xFF == 27: # esc
             break
         elif c & 0xFF == 32: # space
             camera = "right" if camera == "left" else "left"
             print("Camera switched")
 
-        A = np.matmul(get_translation(dx_left, dy_left), get_rotation(alpha_left))
+        A = np.matmul(get_translation(dx_left, dy_left), np.matmul(get_y_rotation(alpha_left), get_z_rotation(beta_left)))
         H = np.matmul(np.matmul(K, A), np.linalg.inv(K))
         left = cv2.warpPerspective(imgA, H, (imgA.shape[1], imgA.shape[0]), flags=cv2.INTER_LINEAR)
         left = scale(left, dz_left)
 
-        A = np.matmul(get_translation(dx_right, dy_right), get_rotation(alpha_right))
+        A = np.matmul(get_translation(dx_right, dy_right), np.matmul(get_y_rotation(alpha_right), get_z_rotation(beta_rigth)))
         H = np.matmul(np.matmul(K, A), np.linalg.inv(K))
         right = cv2.warpPerspective(imgC, H, (imgC.shape[1], imgC.shape[0]), flags=cv2.INTER_LINEAR)
         right = scale(right, dz_right)
 
         result = np.zeros_like(imgB)
-        result[:, :shape[1]] = left[:, :shape[1]]
-        result[:, 2*shape[1]:] = right[:, 2*shape[1]:]
-        result[:, shape[1]:2*shape[1]] = imageB
+        # result[:, :shape[1]] += left[:, :shape[1]] // 2
+        # result[:, 2*shape[1]:] += right[:, 2*shape[1]:] // 2
+
+        result += left // 2
+        result += right // 2
+        result[:, shape[1]:2*shape[1]] += imageB // 2
         cv2.imshow("Calibration", result)
 
-    A = np.matmul(get_translation(dx_left, dy_left), get_rotation(alpha_left))
+    A = np.matmul(get_translation(dx_left, dy_left), np.matmul(get_y_rotation(alpha_left), get_z_rotation(beta_left)))
     H_left = np.matmul(np.matmul(K, A), np.linalg.inv(K))
 
-    A = np.matmul(get_translation(dx_right, dy_right), get_rotation(alpha_right))
+    A = np.matmul(get_translation(dx_right, dy_right), np.matmul(get_y_rotation(alpha_right), get_z_rotation(beta_rigth)))
     H_right = np.matmul(np.matmul(K, A), np.linalg.inv(K))
 
     # save matrices
